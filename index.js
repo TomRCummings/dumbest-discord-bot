@@ -2,11 +2,24 @@ require("dotenv").config();
 
 const fs = require("fs");
 const Discord = require("discord.js");
+const { MongoClient } = require("mongodb");
 
+/*
+// Set up Express webserver
+const express = require("express");
+const app = express();
+const port = 3000;
+*/
+
+// Set up Discord client
 const client = new Discord.Client();
 client.commands = new Discord.Collection();
 client.cooldowns = new Discord.Collection();
 
+// Set up mongoDB client
+const dbClient = new MongoClient(`mongodb+srv://${process.env.dbUsername}:${process.env.dbPassword}@${process.env.clusterURL}/users?retryWrites=true&w=majority`);
+
+// Take commands from in the command directory
 const commandFolders = fs.readdirSync("./commands");
 for (const folder of commandFolders) {
     const commandFiles = fs.readdirSync(`./commands/${folder}`).filter(file => file.endsWith(".js"));
@@ -16,10 +29,15 @@ for (const folder of commandFolders) {
     }
 }
 
+// Log when bot is ready
 client.once("ready", () => {
-    console.log("Ready!");
+    console.log("Discord client is ready!");
 });
 
+// Log when db is ready
+dbClient.connect().then(() => console.log("DB client is ready!")).catch(err => console.error(err));
+
+// Parse with bot prefix message and try to execute command
 client.on("message", message => {
 
     if (!message.content.startsWith(process.env.prefix) || message.author.bot) {return;}
@@ -79,4 +97,22 @@ client.on("message", message => {
     }
 });
 
+// Login to Discord client
 client.login(process.env.TOKEN);
+
+/*
+// Webserver listens on ${port} for connections
+app.listen(port, () => {
+    console.log("Server running on port 3000");
+});
+
+// Parsing middleware
+app.use(express.urlencoded({ extended: false }));
+
+// Log requests at ${port}
+app.use((req, res, next) => {
+    console.log(req.params);
+    console.log(req.body);
+    next();
+});
+*/
