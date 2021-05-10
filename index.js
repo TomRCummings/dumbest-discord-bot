@@ -56,6 +56,13 @@ mongoUtil.connectToServer(function(err, mongoClient) {
             return message.reply("I can only execute that command inside DMs!");
         }
 
+        if (message.guild != null && command.permissions) {
+            const authorPerms = message.channel.permissionsFor(message.author);
+            if(!authorPerms || !authorPerms.has(command.permissions)) {
+                return message.reply("You do not have the permissions to do this!");
+            }
+        }
+
         if (command.args && !args.length) {
             let reply = `You didn't provide any arguments, ${message.author}!`;
 
