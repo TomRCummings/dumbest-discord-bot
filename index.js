@@ -44,64 +44,47 @@ mongoUtil.connectToServer(function(err, mongoClient) {
         const args = message.content.slice(process.env.prefix.length).trim().split(/ +/);
         const commandName = args.shift().toLowerCase();
 
-        if (!client.commands.has(commandName)) {return;}
-
-        const command = client.commands.get(commandName);
-
-        if (command.guildOnly && message.channel.type === "dm") {
-            return message.reply("I can't execute that command inside DMs!");
-        }
-
-        if (command.dmOnly && message.guild != null) {
-            return message.reply("I can only execute that command inside DMs!");
-        }
-
-        if (message.guild != null && command.permissions) {
-            const authorPerms = message.channel.permissionsFor(message.author);
-            if(!authorPerms || !authorPerms.has(command.permissions)) {
-                return message.reply("You do not have the permissions to do this!");
-            }
-        }
-
-        if (command.args && !args.length) {
-            let reply = `You didn't provide any arguments, ${message.author}!`;
-
-            if (command.usage) {
-                reply += `\nThe proper usage would be: \`${process.env.prefix}${command.name} ${command.usage}\``;
-            }
-
-            return message.channel.send(reply);
-        }
-
-        const { cooldowns } = client;
-
-        if (!cooldowns.has(command.name)) {
-            cooldowns.set(command.name, new Discord.Collection());
-        }
-
-        const now = Date.now();
-        const timestamps = cooldowns.get(command.name);
-        const cooldownAmount = (command.cooldown || process.env.defaultCooldown) * 1000;
-
-        if (timestamps.has(message.author.id)) {
-            const expirationTime = timestamps.get(message.author.id) + cooldownAmount;
-
-            if (now < expirationTime) {
-                const timeLeft = (expirationTime - now) / 1000;
-                return message.reply(`Please wait ${timeLeft.toFixed(1)} more second(s) before reusing the \`${command.name}\` command.`);
-            }
-        }
-
-        timestamps.set(message.author.id, now);
-        setTimeout(() => timestamps.delete(message.author.id), cooldownAmount);
-
-        try {
-            command.execute(message, args);
-        } catch (error) {
-            console.error(error);
-            message.reply("Oh no! I had an error trying to execute that command!");
-        }
+        return message.reply(parseCommandAndExecute(client, commandName, args, message.author, message.guild, message.channel));
     });
+
+    client.ws.on("INTERACTION_CREATE", async interaction => {
+        console.log("Interaction created.");
+
+        const commandName = interaction.data.name;
+        const args = new Discord.Collection();
+
+        if (typeof interaction.options !== "undefined") {
+            for (const interactionOption of interaction.options) {
+                args.set(interactionOption.name, interactionOption.value);
+            }
+        }
+
+        let interactionAuthor;
+        if (typeof interaction.member !== "undefined") {
+            interactionAuthor = interaction.member.user;
+        } else {
+            interactionAuthor = interaction.user;
+        }
+
+        let interactionGuild;
+        if (typeof interaction.user !== "undefined") {
+            interactionGuild = null;
+        } else {
+            interactionGuild = await client.guilds.fetch(interaction.guild_id);
+        }
+
+        const interactionChannel = await client.channels.fetch(interaction.channel_id);
+        const replyContent = parseCommandAndExecute(client, commandName, args, interactionAuthor, interactionGuild, interactionChannel);
+        console.log(replyContent);
+        client.api.interactions(interaction.id, interaction.token).callback.post({ data: {
+            type: 4,
+            data: {
+                content: replyContent,
+            },
+        } });
+
+    });
+
 
     // Login to Discord client
     client.login(process.env.TOKEN);
@@ -124,3 +107,71 @@ mongoUtil.connectToServer(function(err, mongoClient) {
     });
     */
 });
+
+function parseCommandAndExecute(client, commandName, args, commandCaller, guildEnv, channelEnv) {
+    let reply;
+
+    if (!client.commands.has(commandName)) {return;}
+
+    const command = client.commands.get(commandName);
+
+    if (command.guildOnly && channelEnv.type === "dm") {
+        reply = "I can't execute that command inside DMs!";
+        return reply;
+    }
+
+    if (command.dmOnly && guildEnv != null) {
+        reply = "I can only execute that command inside DMs!";
+        return reply;
+    }
+
+    if (guildEnv != null && command.permissions) {
+        const authorPerms = channelEnv.permissionsFor(commandCaller);
+        if(!authorPerms || !authorPerms.has(command.permissions)) {
+            reply = "You do not have the permissions to do this!";
+            return reply;
+        }
+    }
+
+    if (command.args && !args.length) {
+        reply = `You didn't provide any arguments, ${commandCaller}!`;
+
+        if (command.usage) {
+            reply += `\nThe proper usage would be: \`${process.env.prefix}${command.name} ${command.usage}\``;
+        }
+
+        return reply;
+    }
+
+    const { cooldowns } = client;
+
+    if (!cooldowns.has(command.name)) {
+        cooldowns.set(command.name, new Discord.Collection());
+    }
+
+    const now = Date.now();
+    const timestamps = cooldowns.get(command.name);
+    const cooldownAmount = (command.cooldown || process.env.defaultCooldown) * 1000;
+
+    if (timestamps.has(commandCaller.id)) {
+        const expirationTime = timestamps.get(commandCaller.id) + cooldownAmount;
+
+        if (now < expirationTime) {
+            const timeLeft = (expirationTime - now) / 1000;
+            reply = `Please wait ${timeLeft.toFixed(1)} more second(s) before reusing the \`${command.name}\` command.`;
+            return reply;
+        }
+    }
+
+    timestamps.set(commandCaller.id, now);
+    setTimeout(() => timestamps.delete(commandCaller.id), cooldownAmount);
+
+    try {
+        reply = command.execute(client, commandName, args, commandCaller, guildEnv, channelEnv);
+    } catch (error) {
+        console.error(error);
+        reply = ("Oh no! I had an error trying to execute that command!");
+    }
+
+    return reply;
+}
