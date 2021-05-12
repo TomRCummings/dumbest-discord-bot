@@ -4,11 +4,11 @@ module.exports = {
     guildOnly: false,
     dmOnly: false,
     args: true,
-    execute(message, args) {
+    execute(client, commandName, args, commandCaller, guildEnv, channelEnv) {
         if (args[0] === "foo") {
-            return message.channel.send("bar");
+            return "bar";
         }
 
-        message.channel.send(`Arguments: ${args}\nArguments length: ${args.length}`);
+        return `Arguments: ${args}\nArguments length: ${args.length}`;
     },
 };
