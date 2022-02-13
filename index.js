@@ -46,6 +46,8 @@ persistent["off"] = function off(id) {
 persistent["listenerArr"] = match => listenerArr.filter(l => match.test(l.regex.source))
     .map(l => `${l.id}: ${l.regex}`).join(", ");
 
+persistent["findFuncByID"] = idCheck => listenerArr.find(x => x.id === idCheck).func.toString();
+
 persistent["onmsg"] = function onmsg(msg) {
     listenerArr.map(l => {
         let match = msg["content"].match(l.regex);
