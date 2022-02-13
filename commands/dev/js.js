@@ -1,5 +1,6 @@
-const vm = require("vm");
+const { VM } = require("vm2");
 
+let vm;
 let contextObject = { };
 
 module.exports = {
@@ -11,17 +12,21 @@ module.exports = {
     args: false,
     setContext(contextToSet) {
         contextObject = contextToSet;
-        vm.createContext(contextObject);
+        vm = new VM({
+            timeout: 1000,
+            allowAsync: false,
+            sandbox: contextObject,
+        });
     },
     passMsg(msg) {
-        contextObject["newMsg"] = msg;
-        vm.runInContext("this.preprocessmsg(this.newMsg)", contextObject);
-        const replyVal = contextObject["newMsg"].replyVal;
+        vm.sandbox["newMsg"] = msg;
+        vm.run("this.preprocessmsg(this.newMsg)");
+        const replyVal = vm.sandbox["newMsg"].replyVal;
         contextObject["newMsg"] = { };
         return replyVal;
     },
     execute(args, commandCaller, guildEnv, channelEnv) {
-        const result = vm.runInContext(args, contextObject);
+        const result = vm.run(args);
         if ((typeof result) == "number" || (typeof result) == "boolean") {
             return result.toString();
         } else if ((typeof result) == "string") {

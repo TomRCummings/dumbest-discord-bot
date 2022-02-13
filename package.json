@@ -14,7 +14,8 @@
     "discord.js": "^13.6.0",
     "dotenv": "^16.0.0",
     "express": "^4.17.2",
-    "mongodb": "^4.3.1"
+    "mongodb": "^4.3.1",
+    "vm2": "^3.9.7"
   },
   "devDependencies": {
     "eslint": "^8.8.0"

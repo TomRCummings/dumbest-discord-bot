@@ -48,7 +48,7 @@ persistent["listenerArr"] = match => listenerArr.filter(l => match.test(l.regex.
 
 persistent["onmsg"] = function onmsg(msg) {
     listenerArr.map(l => {
-        let match = msg.content.match(l.regex);
+        let match = msg["content"].match(l.regex);
         if (match !== null) {
             l.func(msg, ...match.slice(1));
         }
@@ -56,10 +56,6 @@ persistent["onmsg"] = function onmsg(msg) {
 };
 
 persistent["preprocessmsg"] = function preprocess(msg) {
-    msg.replyVal = [];
-    msg.reply = function reply(text) {
-        this.replyVal.push(text);
-    };
     this.onmsg(msg);
 };
 
@@ -175,7 +171,12 @@ function parseMessageAndExecute(funClient, commandName, content, message, comman
         console.log(`Message: ${content}`);
         const strippedMessage = { };
         strippedMessage["content"] = message.cleanContent;
+        console.log(strippedMessage["content"]);
         strippedMessage["author"] = message.author;
+        strippedMessage["replyVal"] = [];
+        strippedMessage["reply"] = function reply(text) {
+            this.replyVal.push(text);
+        };
         const replyValue = client.commands.get("js").passMsg(strippedMessage);
         console.log(`Reply: ${replyValue}`);
         replyValue.forEach(element => {
