@@ -1,177 +1,189 @@
 require("dotenv").config();
 
 const fs = require("fs");
-const Discord = require("discord.js");
-const mongoUtil = require("./mongoUtil");
+const { Client, Intents, Collection } = require("discord.js");
 
-mongoUtil.connectToServer(function(err, mongoClient) {
-    if (err) {
-        console.error(err);
-        return;
+// Set up Discord client
+const myIntents = new Intents();
+myIntents.add(Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES);
+const client = new Client({ intents: myIntents });
+client.commands = new Collection();
+client.cooldowns = new Collection();
+
+// Take commands from in the command directory
+const commandFolders = fs.readdirSync("./commands");
+for (const folder of commandFolders) {
+    const commandFiles = fs.readdirSync(`./commands/${folder}`).filter(file => file.endsWith(".js"));
+    for (const file of commandFiles) {
+        const Command = require(`./commands/${folder}/${file}`);
+        client.commands.set(Command.name, Command);
     }
-    /*
-    // Set up Express webserver
-    const express = require("express");
-    const app = express();
-    const port = 3000;
-    */
+}
 
-    // Set up Discord client
-    const client = new Discord.Client();
-    client.commands = new Discord.Collection();
-    client.cooldowns = new Discord.Collection();
+// Set up persistent global JSON object
+let persistent = {};
+const p = fs.readFileSync("persist.json");
+if (p !== null) {
+    persistent = JSON.parse(p);
+} else {
+    throw Error;
+}
 
-    // Take commands from in the command directory
-    const commandFolders = fs.readdirSync("./commands");
-    for (const folder of commandFolders) {
-        const commandFiles = fs.readdirSync(`./commands/${folder}`).filter(file => file.endsWith(".js"));
-        for (const file of commandFiles) {
-            const Command = require(`./commands/${folder}/${file}`);
-            client.commands.set(Command.name, Command);
+let id = 0;
+let listenerArr = [];
+persistent["on"] = function on(regex, func) {
+    const l = { regex, func, id: ++id };
+    listenerArr.push(l);
+    return l.id;
+};
+
+persistent["off"] = function off(id) {
+    let l = listenerArr.length;
+    listenerArr = listenerArr.filter(l => l.id !== id);
+    return listenerArr.length !== l ? "listener removed" : "no such listener";
+}
+
+persistent["listenerArr"] = match => listenerArr.filter(l => match.test(l.regex.source))
+    .map(l => `${l.id}: ${l.regex}`).join(", ");
+
+persistent["onmsg"] = function onmsg(msg) {
+    listenerArr.map(l => {
+        let match = msg.content.match(l.regex);
+        if (match !== null) {
+            l.func(msg, ...match.slice(1));
         }
+    });
+};
+
+persistent["preprocessmsg"] = function preprocess(msg) {
+    msg.replyVal = [];
+    msg.reply = function reply(text) {
+        this.replyVal.push(text);
+    };
+    this.onmsg(msg);
+};
+
+// Set the context for VM
+if (client.commands.has("js")) {
+    client.commands.get("js").setContext(persistent);
+}
+
+// Log when bot is ready
+client.once("ready", () => {
+    console.log("Discord client is ready!");
+});
+
+// Parse with bot prefix message and try to execute command
+client.on("messageCreate", message => {
+
+    if (message.author.bot) {return;}
+
+    console.log("Message recieved");
+
+    const content = message.content;
+    let commandName = "";
+
+    if (content.trim()[0] == ".") {
+        if (content.indexOf(" ") != -1) {
+            commandName = content.slice(1, content.indexOf(" ") + 1).trim();
+        } else {
+            commandName = content.slice(1);
+        }
+        console.log(`commandName is ${commandName}`);
     }
 
-    // Log when bot is ready
-    client.once("ready", () => {
-        console.log("Discord client is ready!");
-    });
+    parseMessageAndExecute(client, commandName, content, message, message.author, message.guild, message.channel);
+});
 
-    // Parse with bot prefix message and try to execute command
-    client.on("message", message => {
+// Login to Discord client
+client.login(process.env.TOKEN);
 
-        if (!message.content.startsWith(process.env.prefix) || message.author.bot) {return;}
+function parseMessageAndExecute(funClient, commandName, content, message, commandCaller, guildEnv, channelEnv) {
 
-        const args = message.content.slice(process.env.prefix.length).trim().split(/ +/);
-        const commandName = args.shift().toLowerCase();
+    if (content.trim()[0] === "." && funClient.commands.has(commandName)) {
+        const trimmedContent = content.slice(content.indexOf(" ")).trim();
+        let reply;
 
-        return message.reply(parseCommandAndExecute(client, commandName, args, message.author, message.guild, message.channel));
-    });
+        if (commandName != "" && !funClient.commands.has(commandName)) {
+            console.log(`No command with ${commandName} found.`);
+            reply = `No command with ${commandName} found.`;
+            message.reply(reply);
+        }
 
-    client.ws.on("INTERACTION_CREATE", async interaction => {
-        console.log("Interaction created.");
+        const command = funClient.commands.get(commandName);
 
-        const commandName = interaction.data.name;
-        const args = new Discord.Collection();
+        if (command.guildOnly && channelEnv.type === "dm") {
+            reply = "I can't execute that command inside DMs!";
+            message.reply(reply);
+        }
 
-        if (typeof interaction.options !== "undefined") {
-            for (const interactionOption of interaction.options) {
-                args.set(interactionOption.name, interactionOption.value);
+        if (command.dmOnly && guildEnv != null) {
+            reply = "I can only execute that command inside DMs!";
+            message.reply(reply);
+        }
+
+        if (guildEnv !== null && command.permissions !== null) {
+            const authorPerms = channelEnv.permissionsFor(commandCaller);
+            if(!authorPerms || !authorPerms.has(command.permissions)) {
+                reply = "You do not have the permissions to do this!";
+                message.reply(reply);
             }
         }
 
-        let interactionAuthor;
-        if (typeof interaction.member !== "undefined") {
-            interactionAuthor = interaction.member.user;
-        } else {
-            interactionAuthor = interaction.user;
-        }
+        if (command.args && !trimmedContent.length) {
+            reply = `You didn't provide any arguments, ${commandCaller}!`;
 
-        let interactionGuild;
-        if (typeof interaction.user !== "undefined") {
-            interactionGuild = null;
-        } else {
-            interactionGuild = await client.guilds.fetch(interaction.guild_id);
-        }
+            if (command.usage) {
+                reply += `\nThe proper usage would be: \`.${command.name} ${command.usage}\``;
+            }
 
-        const interactionChannel = await client.channels.fetch(interaction.channel_id);
-        const replyContent = parseCommandAndExecute(client, commandName, args, interactionAuthor, interactionGuild, interactionChannel);
-        console.log(replyContent);
-        client.api.interactions(interaction.id, interaction.token).callback.post({ data: {
-            type: 4,
-            data: {
-                content: replyContent,
-            },
-        } });
-
-    });
-
-
-    // Login to Discord client
-    client.login(process.env.TOKEN);
-
-
-    /*
-    // Webserver listens on ${port} for connections
-    app.listen(port, () => {
-        console.log("Server running on port 3000");
-    });
-
-    // Parsing middleware
-    app.use(express.urlencoded({ extended: false }));
-
-    // Log requests at ${port}
-    app.use((req, res, next) => {
-        console.log(req.params);
-        console.log(req.body);
-        next();
-    });
-    */
-});
-
-function parseCommandAndExecute(client, commandName, args, commandCaller, guildEnv, channelEnv) {
-    let reply;
-
-    if (!client.commands.has(commandName)) {return;}
-
-    const command = client.commands.get(commandName);
-
-    if (command.guildOnly && channelEnv.type === "dm") {
-        reply = "I can't execute that command inside DMs!";
-        return reply;
-    }
-
-    if (command.dmOnly && guildEnv != null) {
-        reply = "I can only execute that command inside DMs!";
-        return reply;
-    }
-
-    if (guildEnv != null && command.permissions) {
-        const authorPerms = channelEnv.permissionsFor(commandCaller);
-        if(!authorPerms || !authorPerms.has(command.permissions)) {
-            reply = "You do not have the permissions to do this!";
             return reply;
         }
-    }
 
-    if (command.args && !args.length) {
-        reply = `You didn't provide any arguments, ${commandCaller}!`;
+        const { cooldowns } = client;
 
-        if (command.usage) {
-            reply += `\nThe proper usage would be: \`${process.env.prefix}${command.name} ${command.usage}\``;
+        if (!cooldowns.has(command.name)) {
+            cooldowns.set(command.name, new Collection());
         }
 
-        return reply;
-    }
+        const now = Date.now();
+        const timestamps = cooldowns.get(command.name);
+        const cooldownAmount = (command.cooldown || process.env.defaultCooldown) * 1000;
 
-    const { cooldowns } = client;
+        if (timestamps.has(commandCaller.id)) {
+            const expirationTime = timestamps.get(commandCaller.id) + cooldownAmount;
 
-    if (!cooldowns.has(command.name)) {
-        cooldowns.set(command.name, new Discord.Collection());
-    }
-
-    const now = Date.now();
-    const timestamps = cooldowns.get(command.name);
-    const cooldownAmount = (command.cooldown || process.env.defaultCooldown) * 1000;
-
-    if (timestamps.has(commandCaller.id)) {
-        const expirationTime = timestamps.get(commandCaller.id) + cooldownAmount;
-
-        if (now < expirationTime) {
-            const timeLeft = (expirationTime - now) / 1000;
-            reply = `Please wait ${timeLeft.toFixed(1)} more second(s) before reusing the \`${command.name}\` command.`;
-            return reply;
+            if (now < expirationTime) {
+                const timeLeft = (expirationTime - now) / 1000;
+                reply = `Please wait ${timeLeft.toFixed(1)} more second(s) before reusing the \`${command.name}\` command.`;
+                return reply;
+            }
         }
+
+        timestamps.set(commandCaller.id, now);
+        setTimeout(() => timestamps.delete(commandCaller.id), cooldownAmount);
+
+        try {
+            reply = command.execute(trimmedContent, commandCaller, guildEnv, channelEnv);
+            message.reply(reply);
+        } catch (error) {
+            console.error(error);
+            reply = ("Oh no! I had an error trying to execute that command!");
+            message.reply(reply);
+        }
+    } else {
+        console.log(`Message: ${content}`);
+        const strippedMessage = { };
+        strippedMessage["content"] = message.cleanContent;
+        strippedMessage["author"] = message.author;
+        const replyValue = client.commands.get("js").passMsg(strippedMessage);
+        console.log(`Reply: ${replyValue}`);
+        replyValue.forEach(element => {
+            if (typeof element == "string" && element !== "") {
+                message.channel.send(element);
+            } else if (typeof replyValue == "number") {
+                message.channel.send(element.toString());
+            }
+        });
     }
-
-    timestamps.set(commandCaller.id, now);
-    setTimeout(() => timestamps.delete(commandCaller.id), cooldownAmount);
-
-    try {
-        reply = command.execute(client, commandName, args, commandCaller, guildEnv, channelEnv);
-    } catch (error) {
-        console.error(error);
-        reply = ("Oh no! I had an error trying to execute that command!");
-    }
-
-    return reply;
 }
