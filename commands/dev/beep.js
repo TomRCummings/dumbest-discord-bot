@@ -1,11 +1,11 @@
 module.exports = {
-    name: "ping",
-    description: "Ping!",
+    name: "beep",
+    description: "Beep!",
     guildOnly: false,
     dmOnly: false,
     permissions: null,
     args: false,
     execute(args, commandCaller, guildEnv, channelEnv) {
-        return "Pong.";
+        return "Boop.";
     },
 };
