@@ -41,7 +41,7 @@ persistent["off"] = function off(id) {
     let l = listenerArr.length;
     listenerArr = listenerArr.filter(l => l.id !== id);
     return listenerArr.length !== l ? "listener removed" : "no such listener";
-}
+};
 
 persistent["listenerArr"] = match => listenerArr.filter(l => match.test(l.regex.source))
     .map(l => `${l.id}: ${l.regex}`).join(", ");
@@ -73,8 +73,6 @@ client.once("ready", () => {
 client.on("messageCreate", message => {
 
     if (message.author.bot) {return;}
-
-    console.log("Message recieved");
 
     const content = message.content;
     let commandName = "";

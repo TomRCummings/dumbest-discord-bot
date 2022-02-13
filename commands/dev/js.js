@@ -26,6 +26,7 @@ module.exports = {
         return replyVal;
     },
     execute(args, commandCaller, guildEnv, channelEnv) {
+        console.log(args);
         const result = vm.run(args);
         if ((typeof result) == "number" || (typeof result) == "boolean") {
             return result.toString();
